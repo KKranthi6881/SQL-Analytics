@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Processor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Document Processor</h1>
+    
+    <div class="container">
+        <h2>Upload File</h2>
+        <form id="uploadForm">
+            <input type="file" id="fileInput" accept=".pdf,.sql,.py" required>
+            <button type="submit">Upload and Process</button>
+        </form>
+        <div id="uploadResult" class="result"></div>
+    </div>
+
+    <div class="container">
+        <h2>Query Collection</h2>
+        <form id="queryForm">
+            <select id="collectionName" required>
+                <option value="pdf_documents">PDF Documents</option>
+                <option value="sql_documents">SQL Documents</option>
+                <option value="python_documents">Python Documents</option>
+            </select>
+            <input type="text" id="queryText" placeholder="Enter your query" required>
+            <button type="submit">Query</button>
+        </form>
+        <div id="queryResult" class="result"></div>
+    </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const resultDiv = document.getElementById('uploadResult');
+            const fileInput = document.getElementById('fileInput');
+            
+            // Show loading state
+            resultDiv.innerHTML = 'Processing file...';
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const response = await fetch('/upload/', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Upload failed');
+                }
+                
+                const result = await response.json();
+                resultDiv.innerHTML = `
+                    <h3>Upload Result:</h3>
+                    <pre>
+File: ${result.filename}
+Status: ${result.status}
+Collection: ${result.collection}
+Documents Processed: ${result.num_documents || 'N/A'}
+                    </pre>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div style="color: red;">
+                        <h3>Error:</h3>
+                        <pre>${error.message}</pre>
+                    </div>
+                `;
+            }
+        });
+
+        document.getElementById('queryForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const collectionName = document.getElementById('collectionName').value;
+            const queryText = document.getElementById('queryText').value;
+
+            try {
+                const response = await fetch('/query/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `collection_name=${encodeURIComponent(collectionName)}&query_text=${encodeURIComponent(queryText)}`
+                });
+                const result = await response.json();
+                document.getElementById('queryResult').innerHTML = 
+                    `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+            } catch (error) {
+                document.getElementById('queryResult').innerHTML = 
+                    `<pre>Error: ${error.message}</pre>`;
+            }
+        });
+    </script>
+</body>
+</html> 
