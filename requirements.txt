@@ -10,11 +10,11 @@ uvicorn
 chromadb==0.4.17
 sqlite4
 pypdf
-sqlglot
+sqlglot>=21.0.0
 python-multipart
 jinja2
 langchain_community
-streamlit
+streamlit>=1.31.0
 streamlit-chat
 pyyaml
 extra-streamlit-components
@@ -23,3 +23,6 @@ langchain-openai>=0.0.2
 numpy>=1.22.0
 pypdf2>=3.0.0
 pdfminer.six>=20221105
+pathlib
+watchdog
+

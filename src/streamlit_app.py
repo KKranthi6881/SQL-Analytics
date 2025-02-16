@@ -1,8 +1,15 @@
 import streamlit as st
+import sys
 from pathlib import Path
 import os
-from utils import ChromaDBManager
-from processor import SearchProcessor
+
+# Add the project root directory to Python path
+project_root = Path(__file__).resolve().parent.parent
+sys.path.append(str(project_root))
+
+# Now import local modules
+from src.utils import ChromaDBManager
+from src.processor import SearchProcessor
 import yaml
 import logging
 from typing import Dict, Any

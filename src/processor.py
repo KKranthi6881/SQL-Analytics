@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import List, Dict, Any
-from utils import ChromaDBManager
+from src.utils import ChromaDBManager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -213,3 +213,52 @@ class SearchProcessor:
         """Estimate code complexity metrics."""
         # Implementation details...
         return {}
+
+    def process_code_search(self, code_snippet: str, collection_name: str = None) -> Dict[str, Any]:
+        """Process code search with enhanced context."""
+        try:
+            # Get search results
+            results = self.chroma_manager.search_code(
+                collection_name,
+                code_snippet
+            )
+            
+            if not results.get('results'):
+                return {
+                    'query': code_snippet,
+                    'results': []
+                }
+            
+            # Use cached analysis from metadata
+            processed_results = []
+            for result in results['results']:
+                try:
+                    # Analysis is already in the metadata
+                    analysis = result.get('metadata', {}).get('analysis', {})
+                    
+                    processed_result = {
+                        'content': result['content'],
+                        'similarity': result['similarity'],
+                        'file_path': result['metadata'].get('file_path'),
+                        'language': result['metadata'].get('language'),
+                        'context': self._extract_code_context(
+                            result['content'],
+                            code_snippet,
+                            analysis
+                        )
+                    }
+                    processed_results.append(processed_result)
+                    logger.info(f"Processed result with similarity {result['similarity']}")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing result: {str(e)}")
+                    continue
+            
+            return {
+                'query': code_snippet,
+                'results': processed_results
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in code search: {str(e)}")
+            raise

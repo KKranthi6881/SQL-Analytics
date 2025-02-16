@@ -11,6 +11,7 @@ import logging
 import yaml
 from dotenv import load_dotenv
 import tempfile
+from src.code_analyzer import CodeAnalyzer
 
 # Load environment variables
 load_dotenv()
@@ -129,9 +130,29 @@ class ChromaDBManager:
             raise
 
     def process_code(self, file_path: str, language: str) -> List[Document]:
-        """Process code with language-specific chunking."""
+        """Process code with language-specific chunking and analysis."""
         try:
             logger.info(f"Loading {language} code file: {file_path}")
+            
+            # Initialize code analyzer if not already done
+            if not hasattr(self, 'code_analyzer'):
+                self.code_analyzer = CodeAnalyzer()
+            
+            # Analyze code once and cache the results
+            if not hasattr(self, '_analysis_cache'):
+                self._analysis_cache = {}
+            
+            cache_key = f"{file_path}:{language}"
+            if cache_key not in self._analysis_cache:
+                analysis = self.code_analyzer.analyze_file(file_path, language)
+                self._analysis_cache[cache_key] = analysis
+            else:
+                analysis = self._analysis_cache[cache_key]
+            
+            logger.info(f"Code analysis complete: {analysis}")
+            
+            # Flatten and stringify analysis for ChromaDB metadata
+            flattened_metadata = self._prepare_metadata_for_chroma(analysis)
             
             # Set language-specific splitting
             if hasattr(Language, language.upper()):
@@ -141,15 +162,120 @@ class ChromaDBManager:
                     chunk_overlap=50
                 )
             
-            loader = TextLoader(file_path)
-            documents = loader.load()
-            chunks = self.code_splitter.split_documents(documents)
+            # Load and split code
+            with open(file_path, 'r') as f:
+                content = f.read()
             
-            logger.info(f"Split code into {len(chunks)} chunks")
+            # Create initial document
+            doc = Document(
+                page_content=content,
+                metadata={
+                    'source': file_path,
+                    'language': language,
+                    **flattened_metadata  # Use flattened metadata
+                }
+            )
+            
+            # Split into chunks
+            chunks = self.code_splitter.split_documents([doc])
+            
+            # Enhance chunks with metadata
+            for chunk in chunks:
+                chunk.metadata.update({
+                    'language': language,
+                    'file_path': str(file_path),
+                    **flattened_metadata  # Use flattened metadata
+                })
+            
+            logger.info(f"Split code into {len(chunks)} chunks with analysis metadata")
             return chunks
+            
         except Exception as e:
             logger.error(f"Error processing code: {str(e)}", exc_info=True)
             raise
+
+    def _prepare_metadata_for_chroma(self, analysis: Dict[str, Any]) -> Dict[str, str]:
+        """Prepare analysis metadata for ChromaDB by flattening and converting to primitive types."""
+        flattened = {}
+        
+        try:
+            # Handle tables
+            if 'tables' in analysis:
+                flattened['tables'] = ','.join(sorted([str(t) for t in analysis['tables']]))
+            
+            # Handle relationships
+            if 'relationships' in analysis and analysis['relationships']:
+                relationships = []
+                for rel in analysis['relationships']:
+                    rel_str = f"{rel.get('left_table')}.{rel.get('left_column')} -> {rel.get('right_table')}.{rel.get('right_column')}"
+                    relationships.append(rel_str)
+                flattened['relationships'] = '|'.join(relationships)
+            
+            # Handle column lineage
+            if 'column_lineage' in analysis and analysis['column_lineage']:
+                lineage = []
+                for item in analysis['column_lineage']:
+                    source = item.get('source', {})
+                    lineage_str = f"{source.get('table')}.{source.get('column')} -> {item.get('target_column')}"
+                    lineage.append(lineage_str)
+                flattened['column_lineage'] = '|'.join(lineage)
+            
+            # Handle business context
+            if 'business_context' in analysis and analysis['business_context']:
+                contexts = []
+                for ctx in analysis['business_context']:
+                    ctx_str = f"{ctx.get('category')}: {ctx.get('description')}"
+                    contexts.append(ctx_str)
+                flattened['business_context'] = '|'.join(contexts)
+            
+            # Handle query patterns
+            if 'query_patterns' in analysis and analysis['query_patterns']:
+                flattened['query_patterns'] = str(analysis['query_patterns'])
+            
+            # Add analysis summary
+            flattened['analysis_summary'] = f"Analyzed {len(analysis.get('tables', []))} tables with {len(analysis.get('relationships', []))} relationships"
+            
+            # Ensure all values are strings
+            for key, value in flattened.items():
+                if not isinstance(value, (str, int, float, bool)):
+                    flattened[key] = str(value)
+            
+            return flattened
+            
+        except Exception as e:
+            logger.error(f"Error preparing metadata: {str(e)}")
+            return {
+                'error': str(e),
+                'analysis_status': 'failed'
+            }
+
+    def _flatten_analysis(self, analysis: Dict[str, Any], prefix: str = '') -> Dict[str, str]:
+        """Flatten nested analysis dictionary into string values."""
+        flattened = {}
+        
+        if isinstance(analysis, dict):
+            if 'error' in analysis:
+                # Handle error case
+                flattened['analysis_error'] = str(analysis['error'])
+                return flattened
+            
+            for key, value in analysis.items():
+                new_key = f"{prefix}_{key}" if prefix else key
+                
+                if isinstance(value, (dict, list)):
+                    # Convert complex structures to string representation
+                    flattened[new_key] = str(value)
+                elif isinstance(value, (str, int, float, bool)):
+                    # Keep primitive types as is
+                    flattened[new_key] = value
+                else:
+                    # Convert any other types to string
+                    flattened[new_key] = str(value)
+        else:
+            # If analysis is not a dict, store as string
+            flattened['analysis'] = str(analysis)
+        
+        return flattened
 
     def add_documents(self, collection_name: str, documents: List[Document], metadata: Optional[Dict] = None):
         """Add documents with embeddings to collection."""
