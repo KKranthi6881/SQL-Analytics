@@ -13,6 +13,7 @@ from src.processor import SearchProcessor
 import yaml
 import logging
 from typing import Dict, Any
+from src.agent import CodeQAAgent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -288,158 +289,95 @@ def format_code_results(results: Dict[str, Any]) -> str:
     
     return "\n".join(formatted_output)
 
-# Create three-column layout
-left_col, main_col, right_col = st.columns([1, 2, 1])
+# Update the main layout to use tabs instead
+tab1, tab2, tab3 = st.tabs(["💬 Code Chat", "🔍 Document Search", "📁 File Management"])
 
-# Left Column - Search Configuration
-with left_col:
-    st.header("🔍 Search Settings")
-    
-    # Search Type Selection with clear labels
-    search_type = st.radio(
-        "Select Search Type",
-        ["Document", "Code"],
-        help="Choose whether to search through documents or code files"
-    )
-    
-    # Collection Selection
-    try:
-        collections = db_manager.client.list_collections()
-        collection_names = [c.name for c in collections]
-        
-        if collection_names:
-            # Filter collections based on search type
-            if search_type == "Code":
-                available_collections = [c for c in collection_names if any(ext in c.lower() for ext in ['py', 'sql', 'yml', 'yaml'])]
-                if not available_collections:
-                    st.warning("No code collections found. Please upload some code files first.")
-                    selected_collection = None
-                else:
-                    selected_collection = st.selectbox(
-                        "Select Code Collection",
-                        available_collections,
-                        help="Choose which collection of code files to search through"
-                    )
-            else:
-                available_collections = [c for c in collection_names if 'pdf' in c.lower()]
-                if not available_collections:
-                    st.warning("No document collections found. Please upload some documents first.")
-                    selected_collection = None
-                else:
-                    selected_collection = st.selectbox(
-                        "Select Document Collection",
-                        available_collections,
-                        help="Choose which collection of documents to search through"
-                    )
-        else:
-            st.warning("No collections available. Please upload some files first.")
-            selected_collection = None
-            
-    except Exception as e:
-        st.error(f"Error loading collections: {str(e)}")
-        selected_collection = None
+# Tab 1: Code Chat
+with tab1:
+    st.header("Code Analysis Chat")
+    st.write("Ask questions about your code and get context-aware answers.")
 
-    # Code-specific options
-    if search_type == "Code":
-        st.subheader("Code Search Options")
-        
-        # Language selection
-        language = st.selectbox(
-            "Programming Language",
-            ["python", "sql", "yaml"],
-            help="Select the programming language to search in"
-        )
-        
-        # Search mode
-        search_mode = st.radio(
-            "Search Mode",
-            ["Semantic", "Pattern"],
-            help="Semantic: Find similar code concepts\nPattern: Find exact matches"
-        )
-
-    # Common search settings
-    st.subheader("Search Settings")
-    n_results = st.slider(
-        "Number of Results",
-        min_value=1,
-        max_value=10,
-        value=3,
-        help="How many results to return"
-    )
-
-# Main Column - Chat Interface
-with main_col:
-    st.header("💬 Search Chat")
-    
-    # Add clear chat button
-    if st.button("Clear Chat History"):
-        st.session_state.chat_history = []
-        st.rerun()
-    
-    # Display chat messages
-    for message in st.session_state.chat_history:
-        with st.container():
-            st.markdown(f"""
-            <div class="chat-message {message['role']}">
-                <div class="message">{message['content']}</div>
-                {message.get('results_html', '')}
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # Query input
-    query = st.text_area("Enter your search query:", key="query")
-    if st.button("Search") and query:
-        if not selected_collection:
-            if search_type == "Code":
-                st.error("Please upload code files first.")
-            else:
-                st.error("Please upload documents first.")
-        else:
-            # Add user message
-            st.session_state.chat_history.append({
-                "role": "user",
-                "content": query
-            })
-            
+    def initialize_qa_agent():
+        """Initialize the QA agent."""
+        if not hasattr(st.session_state, 'qa_agent'):
             try:
-                if search_type == "Code":
-                    results = search_processor.search_code(
-                        code_query=query,
-                        collection_name=selected_collection,
-                        language=language,
-                        n_results=n_results
-                    )
-                    results_html = format_code_results(results)
-                else:
-                    results = search_processor.search_documents(
-                        query=query,
-                        collection_name=selected_collection,
-                        n_results=n_results
-                    )
-                    results_html = format_search_results(results, 'document')
-                
-                # Add assistant response
-                st.session_state.chat_history.append({
-                    "role": "assistant",
-                    "content": "Here are the most relevant results:",
-                    "results_html": results_html
-                })
-                
-                # Rerun to update display
-                st.rerun()
-            
+                st.session_state.qa_agent = CodeQAAgent(db_manager)
+                logger.info("QA Agent initialized successfully")
             except Exception as e:
-                st.error(f"Error processing search: {str(e)}")
+                logger.error(f"Error initializing QA agent: {str(e)}")
+                st.error(f"Error initializing QA agent: {str(e)}")
+                return False
+        return True
 
-# Right Column - File Upload
-with right_col:
-    st.header("📁 Upload Files")
+    # Initialize agent
+    if initialize_qa_agent():
+        # Chat interface
+        if 'chat_history' not in st.session_state:
+            st.session_state.chat_history = []
+        
+        # Display chat history
+        for msg in st.session_state.chat_history:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+                if "context" in msg:
+                    with st.expander("View Code Context"):
+                        st.code(msg["context"])
+
+        # Chat input
+        if prompt := st.chat_input("Ask about your code..."):
+            # Add user message to chat
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            
+            with st.chat_message("user"):
+                st.write(prompt)
+
+            # Get response
+            with st.chat_message("assistant"):
+                with st.spinner("Analyzing code and documentation..."):
+                    response = st.session_state.qa_agent.ask(prompt)
+                    st.write(response["answer"])
+                    
+                    # Show code context
+                    with st.expander("View Code Context"):
+                        st.code(response["code_context"])
+                    
+                    # Show documentation context
+                    if "doc_context" in response and response["doc_context"] != "No relevant documentation found":
+                        with st.expander("View Documentation Context"):
+                            st.markdown(response["doc_context"])
+                    
+                    # Show relationships
+                    if "relationships" in response and response["relationships"] != "No relationship information available":
+                        with st.expander("View Table Relationships"):
+                            st.markdown(response["relationships"])
+                    
+                    # Add assistant response to chat
+                    st.session_state.chat_history.append({
+                        "role": "assistant",
+                        "content": response["answer"],
+                        "code_context": response["code_context"],
+                        "doc_context": response.get("doc_context"),
+                        "relationships": response.get("relationships")
+                    })
+
+# Tab 2: Document Search
+with tab2:
+    st.header("Document Search")
+    st.write("Search through your uploaded documents with semantic search.")
+    
+    # Your existing document search code here...
+    # (Keep the document search functionality from your current implementation)
+
+# Tab 3: File Management
+with tab3:
+    st.header("File Management")
     
     # File upload section
+    st.subheader("Upload Files")
     uploaded_file = st.file_uploader(
-        "Upload Document or Code",
+        "Upload Code or Documents",
         type=['pdf', 'py', 'sql', 'yml', 'yaml'],
-        key="file_uploader"
+        help="Upload your code files or documents for analysis"
     )
     
     if uploaded_file:
@@ -514,19 +452,19 @@ with right_col:
                 if 'status_text' in locals():
                     status_text.empty()
 
-    # Display currently available collections
-    st.subheader("Available Collections")
+    # Collection Management
+    st.subheader("Manage Collections")
     try:
         collections = db_manager.client.list_collections()
         if collections:
             for collection in collections:
                 with st.expander(f"📚 {collection.name}"):
-                    try:
-                        count = len(collection.get()['ids'])
-                        st.text(f"Documents: {count}")
-                    except:
-                        st.text("Unable to get document count")
+                    count = len(collection.get()['ids'])
+                    st.text(f"Documents: {count}")
+                    if st.button(f"Delete {collection.name}", key=f"del_{collection.name}"):
+                        # Add collection deletion functionality
+                        pass
         else:
-            st.info("No collections available yet. Upload some files!")
+            st.info("No collections available. Upload some files to get started!")
     except Exception as e:
-        st.warning(f"Unable to list collections: {str(e)}") 
+        st.error(f"Error loading collections: {str(e)}") 

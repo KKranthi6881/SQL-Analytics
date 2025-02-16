@@ -1,4 +1,4 @@
-langgraph
+langgraph>=0.0.10
 langchain
 openai
 python-dotenv

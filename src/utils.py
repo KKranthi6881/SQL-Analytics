@@ -373,6 +373,20 @@ class ChromaDBManager:
         try:
             logger.info(f"Starting code search in collection '{collection_name}' for query: '{code_snippet}'")
             
+            # If no collection name provided, try to find an appropriate one
+            if not collection_name:
+                collections = self.client.list_collections()
+                code_collections = [c.name for c in collections 
+                                  if any(ext in c.name.lower() 
+                                        for ext in ['py', 'sql', 'yml', 'yaml'])]
+                if code_collections:
+                    collection_name = code_collections[0]
+                else:
+                    return {
+                        'query': code_snippet,
+                        'results': []
+                    }
+            
             # Normalize code snippet
             normalized_query = self._normalize_code(code_snippet)
             logger.info(f"Normalized query: {normalized_query}")
@@ -405,7 +419,7 @@ class ChromaDBManager:
                         matched_lines = self._get_matching_lines(code, normalized_query)
                         
                         formatted_result = {
-                            'code': code,  # Full code content
+                            'code': code,
                             'file_info': metadatas[i],
                             'similarity': 1 - float(distances[i]),
                             'matched_lines': matched_lines,
@@ -423,7 +437,10 @@ class ChromaDBManager:
             
         except Exception as e:
             logger.error(f"Error in code similarity search: {str(e)}")
-            raise
+            return {
+                'query': code_snippet,
+                'results': []
+            }
 
     def _normalize_code(self, code: str) -> str:
         """Normalize code for better matching."""
