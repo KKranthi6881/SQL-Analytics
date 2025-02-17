@@ -1,3 +1,7 @@
+from src.patches import patch_chromadb_numpy
+# Apply patch before importing chromadb
+patch_chromadb_numpy()
+
 import os
 from typing import Optional, List, Dict, Any
 import chromadb

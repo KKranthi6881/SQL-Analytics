@@ -13,7 +13,8 @@ from src.processor import SearchProcessor
 import yaml
 import logging
 from typing import Dict, Any
-from src.agent import CodeQAAgent
+from src.agents.code_search import AnalysisSystem
+from src.tools import SearchTools
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -289,6 +290,37 @@ def format_code_results(results: Dict[str, Any]) -> str:
     
     return "\n".join(formatted_output)
 
+def display_analysis_results(results):
+    """Display the analysis results in a structured way"""
+    st.write("### Analysis Results")
+    
+    # Display summary
+    st.write("#### Summary")
+    st.write(results.get("summary", "No summary available"))
+    
+    # Display code context if available
+    if code_context := results.get("code_context", {}):
+        st.write("#### Code Analysis")
+        with st.expander("View Code Details"):
+            if sql_results := code_context.get("results", {}).get("sql", []):
+                st.write("SQL Results:")
+                for idx, result in enumerate(sql_results, 1):
+                    st.code(result.get("code", ""), language="sql")
+                    
+            if py_results := code_context.get("results", {}).get("python", []):
+                st.write("Python Results:")
+                for idx, result in enumerate(py_results, 1):
+                    st.code(result.get("code", ""), language="python")
+    
+    # Display documentation context if available
+    if doc_context := results.get("doc_context", {}):
+        st.write("#### Documentation")
+        with st.expander("View Documentation Details"):
+            for idx, result in enumerate(doc_context.get("results", []), 1):
+                st.write(f"Document {idx}:")
+                st.write(result.get("content", ""))
+                st.write("---")
+
 # Update the main layout to use tabs instead
 tab1, tab2, tab3 = st.tabs(["💬 Code Chat", "🔍 Document Search", "📁 File Management"])
 
@@ -297,20 +329,21 @@ with tab1:
     st.header("Code Analysis Chat")
     st.write("Ask questions about your code and get context-aware answers.")
 
-    def initialize_qa_agent():
-        """Initialize the QA agent."""
-        if not hasattr(st.session_state, 'qa_agent'):
+    def initialize_analysis_system():
+        """Initialize the Analysis System."""
+        if not hasattr(st.session_state, 'analysis_system'):
             try:
-                st.session_state.qa_agent = CodeQAAgent(db_manager)
-                logger.info("QA Agent initialized successfully")
+                tools = SearchTools(db_manager)
+                st.session_state.analysis_system = AnalysisSystem(tools)
+                logger.info("Analysis System initialized successfully")
             except Exception as e:
-                logger.error(f"Error initializing QA agent: {str(e)}")
-                st.error(f"Error initializing QA agent: {str(e)}")
+                logger.error(f"Error initializing Analysis System: {str(e)}")
+                st.error(f"Error initializing Analysis System: {str(e)}")
                 return False
         return True
 
-    # Initialize agent
-    if initialize_qa_agent():
+    # Initialize analysis system
+    if initialize_analysis_system():
         # Chat interface
         if 'chat_history' not in st.session_state:
             st.session_state.chat_history = []
@@ -319,46 +352,44 @@ with tab1:
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
-                if "context" in msg:
-                    with st.expander("View Code Context"):
-                        st.code(msg["context"])
+                if msg["role"] == "assistant":
+                    # Show code context
+                    if msg.get("code_context"):
+                        with st.expander("View Code Analysis"):
+                            st.code(msg["code_context"])
+                    
+                    # Show documentation context
+                    if msg.get("doc_context"):
+                        with st.expander("View Documentation Analysis"):
+                            st.markdown(msg["doc_context"])
 
         # Chat input
-        if prompt := st.chat_input("Ask about your code..."):
+        if query := st.chat_input("Ask about your code..."):
             # Add user message to chat
-            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            st.session_state.chat_history.append({"role": "user", "content": query})
             
             with st.chat_message("user"):
-                st.write(prompt)
+                st.write(query)
 
             # Get response
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing code and documentation..."):
-                    response = st.session_state.qa_agent.ask(prompt)
-                    st.write(response["answer"])
+                    try:
+                        results = st.session_state.analysis_system.analyze(query)
+                        display_analysis_results(results)
+                        
+                        # Add assistant response to chat history
+                        st.session_state.chat_history.append({
+                            "role": "assistant",
+                            "content": results["summary"],
+                            "code_context": results.get("code_context"),
+                            "doc_context": results.get("doc_context")
+                        })
                     
-                    # Show code context
-                    with st.expander("View Code Context"):
-                        st.code(response["code_context"])
-                    
-                    # Show documentation context
-                    if "doc_context" in response and response["doc_context"] != "No relevant documentation found":
-                        with st.expander("View Documentation Context"):
-                            st.markdown(response["doc_context"])
-                    
-                    # Show relationships
-                    if "relationships" in response and response["relationships"] != "No relationship information available":
-                        with st.expander("View Table Relationships"):
-                            st.markdown(response["relationships"])
-                    
-                    # Add assistant response to chat
-                    st.session_state.chat_history.append({
-                        "role": "assistant",
-                        "content": response["answer"],
-                        "code_context": response["code_context"],
-                        "doc_context": response.get("doc_context"),
-                        "relationships": response.get("relationships")
-                    })
+                    except Exception as e:
+                        error_msg = f"Error analyzing query: {str(e)}"
+                        logger.error(error_msg)
+                        st.error(error_msg)
 
 # Tab 2: Document Search
 with tab2:

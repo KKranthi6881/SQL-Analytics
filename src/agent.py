@@ -1,6 +1,7 @@
 from typing import Dict, List, Any, Optional
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 import logging
@@ -11,10 +12,17 @@ logger = logging.getLogger(__name__)
 class CodeQAAgent:
     def __init__(self, chroma_manager: ChromaDBManager):
         self.chroma_manager = chroma_manager
+        
+        self.llm = ChatOllama(
+            model="deepseek-r1:8b",
+            temperature=0
+        ) 
+        
+        '''
         self.llm = ChatOpenAI(
             model="gpt-4o-mini",
             temperature=0
-        )
+        ) '''
         
         # Initialize prompt templates
         self.qa_prompt = ChatPromptTemplate.from_messages([
@@ -27,6 +35,7 @@ class CodeQAAgent:
             - Provide data flow explanations
             - Connect technical details with business context
             - If information is missing from either code or docs, note it
+            - you must diaply the summary of your think. don't give full context.
             
             Code Context:
             {code_context}
@@ -49,7 +58,9 @@ class CodeQAAgent:
                 return {
                     "question": question,
                     "answer": "No collections found. Please upload code files and documentation first.",
-                    "context": "No collections available"
+                    "code_context": "No code available - please upload code files",
+                    "doc_context": "No documentation available - please upload documentation",
+                    "relationships": "No relationships available"
                 }
             
             # Separate code and doc collections
@@ -146,5 +157,7 @@ class CodeQAAgent:
             return {
                 "question": question,
                 "answer": f"Error processing your question: {str(e)}",
-                "context": "Error occurred during processing"
+                "code_context": "Error occurred during processing",
+                "doc_context": "No documentation available",
+                "relationships": "No relationships available"
             } 
