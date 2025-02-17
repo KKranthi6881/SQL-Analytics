@@ -34,12 +34,35 @@ class SearchTools:
                 n_results=3
             )
             
+            # Format results for the agent
+            formatted_results = []
+            
+            # Format SQL results
+            if 'results' in sql_results:
+                for result in sql_results['results']:
+                    formatted_results.append({
+                        'content': result.get('code', ''),
+                        'source': 'SQL',
+                        'file_info': result.get('file_info', {}),
+                        'similarity': result.get('similarity', 0)
+                    })
+            
+            # Format Python results
+            if 'results' in python_results:
+                for result in python_results['results']:
+                    formatted_results.append({
+                        'content': result.get('code', ''),
+                        'source': 'Python',
+                        'file_info': result.get('file_info', {}),
+                        'similarity': result.get('similarity', 0)
+                    })
+            
             return {
-                "results": {
-                    "sql": sql_results.get("results", []),
-                    "python": python_results.get("results", [])
-                }
+                "tool": "code_search",
+                "tool_input": query,
+                "results": formatted_results
             }
+            
         except Exception as e:
             logger.error(f"Error in code search: {str(e)}")
             return {"error": str(e), "results": []}

@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from .utils import ChromaDBManager
 from .tools import SearchTools
-from .agents.code_search import AnalysisSystem
+from .agents.code_research import SimpleAnalysisSystem
 import logging
 from pydantic import BaseModel
 
@@ -32,7 +32,7 @@ db_manager = ChromaDBManager(persist_directory=str(BASE_DIR / "chroma_db"))
 
 # Initialize tools and analysis system
 tools = SearchTools(db_manager)
-analysis_system = AnalysisSystem(tools)
+analysis_system = SimpleAnalysisSystem(tools)
 
 # Add new model for code analysis requests
 class CodeAnalysisRequest(BaseModel):
@@ -52,9 +52,8 @@ async def analyze_code(request: CodeAnalysisRequest):
         
         return JSONResponse({
             "status": "success",
-            "summary": result.get("summary", "No summary available"),
-            "code_context": result.get("code_context", {}),
-            "doc_context": result.get("doc_context", {})
+            "output": result.get("output", "No output available"),
+            "code_context": result.get("code_context", {})
         })
         
     except Exception as e:
