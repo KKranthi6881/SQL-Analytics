@@ -25,4 +25,5 @@ pypdf2
 pdfminer.six
 pathlib
 watchdog
-langgraph-supervisor
+#langgraph-supervisor
+langgraph.checkpoint.sqlite

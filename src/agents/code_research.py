@@ -5,11 +5,15 @@ from langchain.output_parsers import PydanticOutputParser
 from langchain.prompts import PromptTemplate
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
+from pathlib import Path
 import uuid
 import logging
+from sqlite3 import connect
+from threading import Lock
 
 from src.tools import SearchTools
+from src.db.database import ChatDatabase
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -431,38 +435,59 @@ def create_simple_agent(tools: SearchTools):
     graph.add_edge("combiner", "summarizer")
     graph.add_edge("summarizer", END)
 
-    return graph.compile(checkpointer=MemorySaver())
+    # Create SQLite saver
+    db_path = str(Path(__file__).parent.parent.parent / "chat_history.db")
+    conn = connect(db_path, check_same_thread=False)  # Allow multi-threading
+    checkpointer = SqliteSaver(conn)
+
+    # Update graph compilation to use SQLite
+    return graph.compile(checkpointer=checkpointer)
 
 class SimpleAnalysisSystem:
     def __init__(self, tools: SearchTools):
         self.app = create_simple_agent(tools)
+        self.db = ChatDatabase()
+        self._lock = Lock()  # Add thread lock
 
     def analyze(self, query: str) -> Dict[str, Any]:
         """Process a query through the analysis system."""
         try:
-            result = self.app.invoke({
-                "messages": [HumanMessage(content=query)],
-                "code_context": {},
-                "doc_context": {},
-                "code_analysis": "",
-                "doc_analysis": "",
-                "combined_output": "",
-                "final_summary": ""
-            },
-            {"configurable": {"thread_id": str(uuid.uuid4())}}
-            )
+            # Generate unique ID for the conversation
+            conversation_id = str(uuid.uuid4())
             
-            return {
+            with self._lock:  # Use lock for thread safety
+                result = self.app.invoke({
+                    "messages": [HumanMessage(content=query)],
+                    "code_context": {},
+                    "doc_context": {},
+                    "code_analysis": "",
+                    "doc_analysis": "",
+                    "combined_output": "",
+                    "final_summary": ""
+                },
+                {"configurable": {"thread_id": conversation_id}}
+                )
+            
+            # Prepare response data
+            response_data = {
                 "output": result.get("final_summary", "No response available"),
                 "technical_details": result.get("combined_output", "No technical details available"),
                 "code_context": result.get("code_context", {}),
-                "doc_context": result.get("doc_context", {})
+                "query": query
             }
             
+            # Save conversation to database
+            with self._lock:  # Use lock for database operations
+                self.db.save_conversation(conversation_id, response_data)
+            
+            return response_data
+            
         except Exception as e:
-            return {
+            logger.error(f"Error in analysis: {str(e)}", exc_info=True)
+            error_response = {
                 "output": f"Error during analysis: {str(e)}",
                 "technical_details": "",
                 "code_context": {},
-                "doc_context": {}
-            } 
+                "query": query
+            }
+            return error_response 
