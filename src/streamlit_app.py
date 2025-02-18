@@ -182,31 +182,52 @@ def init_session_state():
         st.session_state.selected_conversation = None
 
 def render_history_sidebar():
+    """Render the conversation history in the sidebar"""
     with st.sidebar:
-        # Modern sidebar header
+        # Simple header
+        st.title("History")
+        
+        # Custom styling for buttons and sidebar
         st.markdown("""
-            <div class="sidebar-header">
-                <h2 style="margin:0; font-size: 1.5rem;">
-                    🔍 Code Research Assistant
-                </h2>
-                <p style="margin: 0.5rem 0 0 0; opacity: 0.9; font-size: 0.9rem;">
-                    Your AI-powered code companion
-                </p>
-            </div>
+            <style>
+            /* Sidebar styling */
+            [data-testid="stSidebar"] {
+                background-color: #ffffff;
+                border-right: 1px solid #e2e8f0;
+            }
+            
+            /* Button styling */
+            [data-testid="stButton"] button {
+                background-color: #f8fafc !important;
+                color: #1e293b !important;
+                border: 1px solid #e2e8f0 !important;
+            }
+            [data-testid="stButton"] button:hover {
+                background-color: #f1f5f9 !important;
+                border-color: #cbd5e0 !important;
+            }
+            
+            /* History item styling */
+            .element-container button {
+                text-align: left !important;
+                padding: 0.75rem !important;
+                margin: 0.25rem 0 !important;
+                border-radius: 4px !important;
+            }
+            </style>
         """, unsafe_allow_html=True)
         
-        # New chat button with modern styling
-        if st.button("+ New Analysis", key="new_chat_btn", use_container_width=True):
+        if st.button("+ New Analysis", type="primary", use_container_width=True):
             st.session_state.selected_conversation = None
             st.rerun()
         
-        # Modern search box
-        st.markdown('<div class="search-container">', unsafe_allow_html=True)
+        st.divider()
+        
+        # Search box
         search_term = st.text_input("", 
                                   placeholder="🔍 Search conversations...",
                                   label_visibility="collapsed")
-        st.markdown('</div>', unsafe_allow_html=True)
-
+        
         # Get history from database
         db = ChatDatabase()
         history = db.get_conversation_history_with_checkpoints()
@@ -215,57 +236,25 @@ def render_history_sidebar():
             st.info("No conversations yet. Start a new chat!")
             return
 
-        def get_date(timestamp):
-            """Parse timestamp string to date object"""
-            # Remove any milliseconds/microseconds if present
-            timestamp = timestamp.split('.')[0]
-            return datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S').date()
-
-        def format_timestamp(ts):
-            """Format timestamp for display"""
-            # Remove any milliseconds/microseconds if present
-            ts = ts.split('.')[0]
-            dt = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
-            return dt.strftime('%I:%M %p')
-
-        # Sort and group conversations
+        # Sort conversations by date
         sorted_history = sorted(history, key=lambda x: x['timestamp'], reverse=True)
-        grouped_history = {}
+        
+        # Display conversations
         for conv in sorted_history:
-            date = get_date(conv['timestamp'])
-            if date not in grouped_history:
-                grouped_history[date] = []
-            grouped_history[date].append(conv)
-
-        # Display grouped conversations
-        for date in sorted(grouped_history.keys(), reverse=True):
-            st.markdown(f"""
-                <div class="date-header">
-                    📅 {date.strftime("%B %d, %Y")}
-                </div>
-            """, unsafe_allow_html=True)
-            
-            for conv in grouped_history[date]:
-                if search_term.lower() in conv['query'].lower():
-                    col1, col2 = st.columns([0.85, 0.15])
-                    
-                    with col1:
-                        st.markdown(f"""
-                            <div class="conversation-item">
-                                <div class="query-preview">{conv['query'].split('\n')[0][:50]}...</div>
-                                <div class="timestamp">
-                                    <span>🕒 {format_timestamp(conv['timestamp'])}</span>
-                                    <span class="checkpoint-badge">
-                                        {len(conv.get('checkpoints', [])) if conv.get('checkpoints') else 0} checkpoints
-                                    </span>
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    
-                    with col2:
-                        if st.button("View", key=f"btn_{conv['id']}", use_container_width=True):
-                            st.session_state.selected_conversation = conv
-                            st.rerun()
+            if search_term.lower() in conv['query'].lower():
+                # Format timestamp
+                timestamp = datetime.strptime(conv['timestamp'].split('.')[0], '%Y-%m-%d %H:%M:%S')
+                formatted_time = timestamp.strftime('%b %d, %Y %I:%M %p')
+                
+                # Clickable conversation item
+                if st.sidebar.button(
+                    f"{conv['query'][:50]}...\n📅 {formatted_time}", 
+                    key=f"conv_{conv['id']}", 
+                    use_container_width=True,
+                    type="secondary"
+                ):
+                    st.session_state.selected_conversation = conv
+                    st.rerun()
 
 def save_checkpoint(conversation_id: str, original_response: dict, updated_response: dict):
     """Save a checkpoint when a conversation response is edited"""

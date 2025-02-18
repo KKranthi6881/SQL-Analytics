@@ -105,13 +105,13 @@ async def upload_file(file: UploadFile = File(...)):
         
         if file_extension == '.pdf':
             logger.info("Processing PDF file...")
-            docs = db_manager.process_pdf(str(file_path))
+            docs = db_manager.process_document(str(file_path), 'pdf')
         elif file_extension == '.sql':
             logger.info("Processing SQL file...")
-            docs = db_manager.process_sql(str(file_path))
+            docs = db_manager.process_code(str(file_path), 'sql')
         elif file_extension == '.py':
             logger.info("Processing Python file...")
-            docs = db_manager.process_python(str(file_path))
+            docs = db_manager.process_code(str(file_path), 'python')
         else:
             raise HTTPException(status_code=400, detail="Unsupported file type")
         
@@ -335,6 +335,42 @@ def render_history_sidebar():
                 
                 # Add a divider between conversations
                 st.divider()
+
+def chat_interface():
+    """Chat interface for the Streamlit app"""
+    st.markdown("### Ask a Question")
+    query = st.text_area("Enter your question:", height=100)
+    
+    if st.button("Submit"):
+        if not query:
+            st.warning("Please enter a question first.")
+            return
+            
+        with st.spinner("Analyzing..."):
+            result = analyze_code(query)
+            
+            if result:
+                st.markdown("#### Response")
+                st.markdown(result.get("output", "No output available"))
+                
+                if result.get("code_context"):
+                    st.markdown("#### Code Context")
+                    st.json(result["code_context"])
+
+def file_upload_interface():
+    """File upload interface for the Streamlit app"""
+    st.markdown("### Upload Files")
+    uploaded_file = st.file_uploader(
+        "Choose a file to upload (.py, .sql, .pdf)", 
+        type=["py", "sql", "pdf"]
+    )
+    
+    if uploaded_file and st.button("Process File"):
+        with st.spinner("Processing file..."):
+            result = upload_file(uploaded_file)
+            if result:
+                st.success(f"File processed: {result.get('filename')}")
+                st.json(result)
 
 def main():
     st.set_page_config(page_title="Code Analysis Assistant", layout="wide")

@@ -105,7 +105,8 @@ def create_simple_agent(tools: SearchTools):
     - Focus on SQL and Python code structure
     - Identify tables, columns and their relationships
     - Explain technical implementation details
-    - Describe the business logic
+    - Describe the business logic 
+    - Provide the Column level lineage which is relavent to the ask and code.
     
     Your response MUST be in the following JSON format:
     {format_instructions}
@@ -130,6 +131,7 @@ def create_simple_agent(tools: SearchTools):
     - Identify key concepts and terminology
     - Extract business rules and processes
     - Note any important considerations
+    - Make sure revist, anlyze and double heck if you miss any table or columns before you confirm the output.
     
     Your response MUST be in the following JSON format:
     {format_instructions}
@@ -361,10 +363,9 @@ def create_simple_agent(tools: SearchTools):
             try:
                 # Format the response as a technical document
                 output = f"""
-                Technical Analysis Document
-                =========================
 
-                {response_text}
+                                  {response_text}
+                ===================================================
 
                 Code Context Details
                 ------------------

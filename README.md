@@ -1,7 +1,7 @@
 # SQL-Analytics
 # SQL-Analytics
-virtual env create: python3 -m venv sql-analytics
-activate vm: source sql-analytics/bin/activate
+virtual env create: python3 -m venv venv
+activate vm: source venv/bin/activate
 pip3 install -r requirements.txt
 
 start FastAPI:  uvicorn src.app:app --reload
