@@ -122,11 +122,10 @@ class ChatDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # First, let's get just the conversations with normalized timestamp
                 query = """
                     SELECT 
                         id,
-                        strftime('%Y-%m-%d %H:%M:%S', created_at) as created_at,  /* Simplified timestamp format */
+                        strftime('%Y-%m-%d %H:%M:%S', created_at) as created_at,
                         query,
                         output,
                         code_context,
@@ -137,10 +136,25 @@ class ChatDatabase:
                 cursor.execute(query)
                 rows = cursor.fetchall()
                 
-                # Group conversations by topic/context
                 history = []
                 for row in rows:
-                    # Get checkpoints for this conversation using thread_id
+                    # Safely parse JSON fields
+                    try:
+                        output_data = json.loads(row[3]) if row[3] and row[3].strip() else {}
+                    except (json.JSONDecodeError, TypeError):
+                        output_data = {"raw_output": row[3]} if row[3] else {}
+                    
+                    try:
+                        code_context = json.loads(row[4]) if row[4] and row[4].strip() else {}
+                    except (json.JSONDecodeError, TypeError):
+                        code_context = {"raw_context": row[4]} if row[4] else {}
+                    
+                    try:
+                        technical_details = json.loads(row[5]) if row[5] and row[5].strip() else {}
+                    except (json.JSONDecodeError, TypeError):
+                        technical_details = {"raw_details": row[5]} if row[5] else {}
+
+                    # Get checkpoints
                     checkpoint_query = """
                         SELECT 
                             checkpoint_id,
@@ -152,15 +166,13 @@ class ChatDatabase:
                         WHERE thread_id = ?
                         ORDER BY checkpoint_id
                     """
-                    cursor.execute(checkpoint_query, (row[0],))  # using conversation id as thread_id
+                    cursor.execute(checkpoint_query, (row[0],))
                     checkpoints = cursor.fetchall()
                     
-                    # Process checkpoints if they exist
                     processed_checkpoints = []
                     if checkpoints:
                         for cp in checkpoints:
                             try:
-                                # Safely handle binary data
                                 checkpoint_data = {
                                     'checkpoint_id': cp[0],
                                     'parent_id': cp[1],
@@ -177,9 +189,9 @@ class ChatDatabase:
                         'id': row[0],
                         'timestamp': row[1],
                         'query': row[2],
-                        'output': json.loads(row[3]) if row[3] else {},
-                        'code_context': json.loads(row[4]) if row[4] else {},
-                        'technical_details': json.loads(row[5]) if row[5] else {},
+                        'output': output_data,
+                        'code_context': code_context,
+                        'technical_details': technical_details,
                         'checkpoints': processed_checkpoints
                     })
                 
@@ -189,19 +201,80 @@ class ChatDatabase:
         """Safely load binary data that might be JSON"""
         if not binary_data:
             return {}
+        
         try:
-            # Try to decode as UTF-8 first
             if isinstance(binary_data, bytes):
+                # Try UTF-8 first
                 try:
-                    return json.loads(binary_data.decode('utf-8'))
+                    decoded = binary_data.decode('utf-8')
                 except UnicodeDecodeError:
-                    # If UTF-8 fails, try other encodings or return as string
-                    return binary_data.decode('latin-1')
-            # If it's already a string, try to parse as JSON
+                    decoded = binary_data.decode('latin-1')
+                
+                # Try parsing as JSON
+                try:
+                    return json.loads(decoded)
+                except json.JSONDecodeError:
+                    return {"raw_data": decoded}
+                
             elif isinstance(binary_data, str):
-                return json.loads(binary_data)
+                try:
+                    return json.loads(binary_data)
+                except json.JSONDecodeError:
+                    return {"raw_data": binary_data}
             else:
-                return str(binary_data)
+                return {"raw_data": str(binary_data)}
+            
         except Exception as e:
             print(f"Error loading binary data: {str(e)}")
-            return {"error": "Could not parse data"} 
+            return {"error": "Could not parse data", "raw_data": str(binary_data)}
+
+    def update_conversation(self, conversation_id: str, updated_query: str):
+        """Update a conversation's query"""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE conversations SET query = ? WHERE id = ?",
+                    (updated_query, conversation_id)
+                )
+                conn.commit()
+
+    def create_checkpoint(self, thread_id: str, checkpoint_id: str, checkpoint_type: str, checkpoint_data: str):
+        """Create a new checkpoint"""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO checkpoints (
+                        thread_id, checkpoint_id, type, checkpoint
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (thread_id, checkpoint_id, checkpoint_type, checkpoint_data)
+                )
+                conn.commit()
+
+    def update_conversation_response(self, conversation_id: str, updated_response: str):
+        """Update a conversation's response"""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                try:
+                    # If it's a dict or list, convert to JSON string
+                    if isinstance(updated_response, (dict, list)):
+                        updated_response = json.dumps(updated_response)
+                    # If it's already a string but looks like JSON, validate it
+                    elif isinstance(updated_response, str) and (
+                        updated_response.strip().startswith('{') or 
+                        updated_response.strip().startswith('[')
+                    ):
+                        # Validate JSON format
+                        json.loads(updated_response)
+                    
+                    cursor.execute(
+                        "UPDATE conversations SET output = ? WHERE id = ?",
+                        (updated_response, conversation_id)
+                    )
+                    conn.commit()
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Invalid JSON format: {str(e)}") 
