@@ -77,7 +77,7 @@ class FinalSummary(BaseModel):
 def create_simple_agent(tools: SearchTools):
     # Initialize models
     code_model = ChatOllama(
-        model="llama3.2:3b",
+        model="deepseek-r1:8b",
         temperature=0,
         base_url="http://localhost:11434",
         timeout=120,
@@ -103,15 +103,17 @@ def create_simple_agent(tools: SearchTools):
     
     Guidelines:
     - Focus on SQL and Python code structure
-    - Identify tables, columns and their relationships
-    - Explain technical implementation details
+    - Identify tables, columns and their relationships related to the user question only.
+    - Explain technical implementation details related to the user question only.
     - Describe the business logic 
-    - Provide the Column level lineage which is relavent to the ask and code.
+    - Provide the Column level lineage which is relavent to related to the user question only and code.
+    - Don't provide a generalized answers or tables info
+    - You must rethink and provide related to the user question.
     
     Your response MUST be in the following JSON format:
     {format_instructions}
     
-    Make sure to include:
+    Make sure to include the below content must be related to the user question only.:
     1. All tables and their columns in the tables_and_columns field
     2. All relationships between tables in the relationships field
     3. Clear business logic description in the business_logic field
@@ -194,12 +196,15 @@ def create_simple_agent(tools: SearchTools):
     4. Technical Implementation
        - Implementation approach
        - Key technical considerations
+
     
-    5. Recommendations
-       - Areas for improvement
-       - Suggested enhancements
+    Make your analysis clear and actionable. After your analysis 
     
-    Make your analysis clear and actionable.
+    1. provide suitable sql script based on user question only.
+    2. Don't genreate random sql queries
+    3. Before you finalize it make sure you analyze the list of tables and columns should cover for the question related task.
+    4. Parse the query without any syntax error and provide the final sql query output.
+    4. If you do not find the related tables or columns respecitve to the questions Please say I do not have enough info available.
     Response:
     """
 

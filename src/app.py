@@ -12,6 +12,9 @@ from pydantic import BaseModel
 from .db.database import ChatDatabase
 import streamlit as st
 from datetime import datetime
+from src.agents.Data_analyst import DataAnalysisSystem, DataAnalysisRequest, SAKILA_DB_PATH
+from langchain_community.utilities import SQLDatabase
+from src.tools import SearchTools
 
 app = FastAPI()
 
@@ -34,14 +37,24 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 db_manager = ChromaDBManager(persist_directory=str(BASE_DIR / "chroma_db"))
 
 # Initialize tools and analysis system
-tools = SearchTools(db_manager)
-analysis_system = SimpleAnalysisSystem(tools)
+code_search_tools = SearchTools(db_manager)
+analysis_system = SimpleAnalysisSystem(code_search_tools)
 
 # Initialize database
 chat_db = ChatDatabase()
 
+# Initialize systems
+data_analyst = DataAnalysisSystem(
+    tools=None,
+    db_path=SAKILA_DB_PATH
+)
+
 # Add new model for code analysis requests
 class CodeAnalysisRequest(BaseModel):
+    query: str
+
+# Add new model for analysis requests
+class AnalysisRequest(BaseModel):
     query: str
 
 # Add new endpoints for code analysis
@@ -405,6 +418,69 @@ def main():
     with tab2:
         # Your existing file upload interface
         file_upload_interface()
+
+@app.post("/analyze")
+async def analyze_data(request: AnalysisRequest):
+    try:
+        result = data_analyst.analyze(request.query)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/schema")
+async def get_schema():
+    try:
+        schema = code_search_tools.get_database_schema()
+        return {"schema": schema}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/sql_analyze/")
+async def analyze_sql_query(request: DataAnalysisRequest):
+    """Endpoint for SQL analysis"""
+    try:
+        logger.info(f"Processing SQL analysis query: {request.query}")
+        result = data_analyst.analyze(request.query)
+        
+        if "error" in result:
+            logger.error(f"Analysis error: {result['error']}")
+            return JSONResponse(
+                status_code=400,
+                content=result
+            )
+            
+        return JSONResponse(content=result)
+        
+    except Exception as e:
+        logger.error(f"Error in SQL analysis: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": str(e)
+            }
+        )
+
+@app.get("/database_schema/")
+async def get_database_schema():
+    """Get the database schema"""
+    try:
+        schema = data_analyst.db_conn.get_schema()
+        return JSONResponse({
+            "status": "success",
+            "schema": schema
+        })
+    except Exception as e:
+        logger.error(f"Error fetching schema: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": str(e)
+            }
+        )
 
 if __name__ == "__main__":
     main() 

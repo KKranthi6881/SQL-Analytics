@@ -5,6 +5,10 @@ from pathlib import Path
 import os
 from datetime import datetime
 from db.database import ChatDatabase
+import plotly.graph_objects as go
+import pandas as pd
+from src.app import app
+from src.agents.Data_analyst import DataAnalysisSystem
 
 # Set page config with modern styling
 st.set_page_config(
@@ -175,7 +179,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Constants
-API_URL = "http://localhost:8000"  # Adjust if your FastAPI server runs on a different port
+API_URL = "http://localhost:8000"  # Adjust port if needed
 
 def init_session_state():
     if 'selected_conversation' not in st.session_state:
@@ -535,33 +539,135 @@ def main():
     if st.session_state.selected_conversation:
         display_conversation_details(st.session_state.selected_conversation)
         
-        # Add "Start New Chat" button in main area
-        if st.button("Start New Chat", key="new_chat_main"):
+        if st.button("Start New Analysis", key="new_analysis_main"):
             st.session_state.selected_conversation = None
             st.rerun()
     else:
-        st.title("Code Analysis System")
-        st.markdown("### Upload and analyze your code")
+        st.title("SQL Analytics Assistant")
+        
+        # Create tabs for different types of analysis
+        tab1, tab2, tab3 = st.tabs(["SQL Analysis", "Code Analysis", "File Upload"])
+        
+        with tab1:
+            # SQL Analysis Tab
+            analyst = get_analyst()
+            
+            # Add schema viewer
+            if st.checkbox("View Database Schema", key="view_schema"):
+                try:
+                    schema = get_schema()
+                    if schema:
+                        st.success(f"Found {len(schema)} tables in database")
+                        st.info("💡 Use these table names in your question")
+                        for table, columns in schema.items():
+                            with st.expander(f"📊 {table}"):
+                                if details := columns:
+                                    df = pd.DataFrame(details)
+                                    st.dataframe(df, use_container_width=True)
+                                    st.markdown(f"*{len(details)} columns available*")
+                except Exception as e:
+                    st.error(f"Error accessing database: {str(e)}")
+            
+            # Query input
+            query = st.text_input(
+                "Enter your question:", 
+                placeholder="e.g., give me the top 10 actors who has most movies"
+            )
+            
+            if st.button("Analyze"):
+                if query:
+                    with st.spinner("Analyzing..."):
+                        results = analyst.analyze(query)
+                        
+                        if "error" in results:
+                            st.error(f"Error: {results['error']}")
+                            if "details" in results:
+                                st.error(f"Details: {results['details']}")
+                        else:
+                            # Show SQL Info
+                            with st.expander("SQL Details", expanded=True):
+                                sql_info = results.get('sql_generation', {})
+                                st.code(sql_info.get('query', 'No query available'), language='sql')
+                                st.write(f"Explanation: {sql_info.get('explanation', 'No explanation available')}")
+                            
+                            # Show Query Results
+                            query_results = results.get('query_results', {})
+                            if query_results and 'data' in query_results:
+                                st.subheader("Data Results")
+                                df = pd.DataFrame(query_results['data'])
+                                st.dataframe(df)
+                                st.info(f"Total rows: {query_results.get('row_count', 0)}")
+                            
+                            # Show Visualization
+                            viz_spec = results.get('visualization_spec', {})
+                            if viz_spec and 'plotly_code' in viz_spec:
+                                st.subheader("Visualization")
+                                fig = go.Figure()
+                                
+                                if query_results and 'data' in query_results:
+                                    data = query_results['data']
+                                    if data:
+                                        # Get column names
+                                        columns = list(data[0].keys())
+                                        
+                                        # Determine visualization type based on data
+                                        if len(columns) >= 2:
+                                            # If we have numeric values in second column
+                                            if isinstance(data[0][columns[1]], (int, float)):
+                                                fig.add_trace(go.Bar(
+                                                    x=[str(row[columns[0]]) for row in data],
+                                                    y=[row[columns[1]] for row in data],
+                                                    name=columns[1]
+                                                ))
+                                                
+                                                fig.update_layout(
+                                                    title=results.get('question_analysis', {}).get('intent', 'Analysis Results'),
+                                                    xaxis_title=columns[0],
+                                                    yaxis_title=columns[1],
+                                                    showlegend=True,
+                                                    template='plotly_white'
+                                                )
+                                            else:
+                                                # For non-numeric data, show as table
+                                                st.write("Data is not suitable for bar visualization, showing as table instead")
+                                                st.dataframe(pd.DataFrame(data))
+                                        else:
+                                            st.write("Not enough columns for visualization")
+                                            
+                                        # Display the plot if we created one
+                                        if len(fig.data) > 0:
+                                            st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("Please enter a question to analyze.")
+        
+        with tab2:
+            # Code Analysis Tab
+            st.markdown("### Code Analysis")
+            code_analysis_interface()
+        
+        with tab3:
+            # File Upload Tab
+            st.markdown("### File Upload")
+            file_upload_interface()
 
-    # File upload section
-    uploaded_file = st.file_uploader(
-        "Choose a file to upload (.py, .sql, .pdf)", 
-        type=["py", "sql", "pdf"]
-    )
-    
-    if uploaded_file:
-        if st.button("Process File"):
-            with st.spinner("Processing file..."):
-                result = upload_file(uploaded_file)
-                if result:
-                    st.success(f"File processed: {result.get('filename')}")
-                    st.json(result)
+def get_analyst():
+    """Get the DataAnalysisSystem instance"""
+    return DataAnalysisSystem()
 
-    # Analysis section
-    st.markdown("### Code Analysis")
-    query = st.text_area("Enter your analysis query:", height=100)
+def get_schema():
+    """Get database schema"""
+    try:
+        response = requests.get(f"{API_URL}/database_schema/")
+        if response.status_code == 200:
+            return response.json()["schema"]
+    except Exception as e:
+        st.error(f"Error fetching schema: {str(e)}")
+    return None
+
+def code_analysis_interface():
+    query = st.text_area("Enter your code analysis query:", height=100)
     
-    if st.button("Analyze"):
+    if st.button("Analyze Code"):
         if not query:
             st.warning("Please enter a query first.")
             return
@@ -570,15 +676,26 @@ def main():
             result = analyze_code(query)
             
             if result:
-                # Display the analysis output
                 st.markdown("#### Analysis Result")
                 st.markdown(result.get("output", "No output available"))
                 
-                # Display code context if available
-                code_context = result.get("code_context", {})
-                if code_context:
+                if result.get("code_context"):
                     st.markdown("#### Code Context")
-                    st.json(code_context)
+                    st.json(result["code_context"])
+
+def file_upload_interface():
+    uploaded_file = st.file_uploader(
+        label="Choose a file to upload",
+        type=["py", "sql", "pdf"],
+        key="file_upload"
+    )
+    
+    if uploaded_file and st.button("Process Selected File"):
+        with st.spinner("Processing file..."):
+            result = upload_file(uploaded_file)
+            if result:
+                st.success(f"File processed: {result.get('filename')}")
+                st.json(result)
 
 if __name__ == "__main__":
     main() 

@@ -27,3 +27,5 @@ pathlib
 watchdog
 #langgraph-supervisor
 langgraph.checkpoint.sqlite
+langchain_experimental
+plotly
