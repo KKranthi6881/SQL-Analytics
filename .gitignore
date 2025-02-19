@@ -37,3 +37,7 @@ chroma_db/
 .DS_Store
 Thumbs.db
 .env
+
+/Users/Kranthi_1/SQL-Analytics/.env
+
+/Users/Kranthi_1/SQL-Analytics/src/utils.py

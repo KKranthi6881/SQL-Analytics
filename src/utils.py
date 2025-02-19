@@ -38,7 +38,7 @@ class ChromaDBManager:
     def __init__(self, persist_directory: str = "./chroma_db"):
         """Initialize ChromaDB with a persistence directory."""
         # Check for OpenAI API key
-        self.api_key = "XXXXX"
+        self.api_key = "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"
         if not self.api_key:
             raise ValueError(
                 "OpenAI API key not found. Please set OPENAI_API_KEY environment variable."
