@@ -29,3 +29,4 @@ watchdog
 langgraph.checkpoint.sqlite
 langchain_experimental
 plotly
+sentence-transformers

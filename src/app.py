@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 import os
 from pathlib import Path
 from .utils import ChromaDBManager
@@ -12,9 +13,12 @@ from pydantic import BaseModel
 from .db.database import ChatDatabase
 import streamlit as st
 from datetime import datetime
-from src.agents.Data_analyst import DataAnalysisSystem, DataAnalysisRequest, SAKILA_DB_PATH
+from src.agents.sql_analysis_system import SQLAnalysisSystem, AnalysisOutput, AnalysisState
 from langchain_community.utilities import SQLDatabase
 from src.tools import SearchTools
+from typing import Optional, Dict, Any
+import time
+from langchain.schema import HumanMessage
 
 app = FastAPI()
 
@@ -43,11 +47,8 @@ analysis_system = SimpleAnalysisSystem(code_search_tools)
 # Initialize database
 chat_db = ChatDatabase()
 
-# Initialize systems
-data_analyst = DataAnalysisSystem(
-    tools=None,
-    db_path=SAKILA_DB_PATH
-)
+# Initialize SQL Analysis System
+sql_analysis_system = SQLAnalysisSystem(str(Path(__file__).parent / "db" / "sampledb" / "sakila_master.db"))
 
 # Add new model for code analysis requests
 class CodeAnalysisRequest(BaseModel):
@@ -56,6 +57,15 @@ class CodeAnalysisRequest(BaseModel):
 # Add new model for analysis requests
 class AnalysisRequest(BaseModel):
     query: str
+
+# Add new request/response models
+class SQLAnalysisRequest(BaseModel):
+    query: str
+    context: Optional[Dict[str, Any]] = None
+
+class SQLAnalysisResponse(BaseModel):
+    result: Dict[str, Any]
+    execution_time: float
 
 # Add new endpoints for code analysis
 @app.post("/analyze/")
@@ -422,7 +432,7 @@ def main():
 @app.post("/analyze")
 async def analyze_data(request: AnalysisRequest):
     try:
-        result = data_analyst.analyze(request.query)
+        result = sql_analysis_system.analyze(request.query)
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
         return result
@@ -437,49 +447,57 @@ async def get_schema():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/sql_analyze/")
-async def analyze_sql_query(request: DataAnalysisRequest):
+@app.post("/sql_analyze/", response_model=SQLAnalysisResponse)
+async def analyze_sql_query(request: SQLAnalysisRequest):
     """Endpoint for SQL analysis"""
     try:
-        logger.info(f"Processing SQL analysis query: {request.query}")
-        result = data_analyst.analyze(request.query)
+        initial_state = AnalysisState(
+            messages=[HumanMessage(content=request.query)],
+            code_search=None,
+            doc_search=None,
+            analysis=None,
+            query=None,
+            results=None,
+            visualization=None,
+            error=None,
+            metadata={"start_time": time.time()}
+        )
         
-        if "error" in result:
-            logger.error(f"Analysis error: {result['error']}")
-            return JSONResponse(
+        result = sql_analysis_system.workflow.invoke(initial_state)
+        execution_time = time.time() - initial_state["metadata"]["start_time"]
+        
+        if result.get("error"):
+            raise HTTPException(
                 status_code=400,
-                content=result
+                detail=result["error"]
             )
             
-        return JSONResponse(content=result)
+        return SQLAnalysisResponse(
+            result=result,
+            execution_time=execution_time
+        )
         
     except Exception as e:
-        logger.error(f"Error in SQL analysis: {str(e)}")
-        return JSONResponse(
+        logger.error(f"SQL analysis failed: {str(e)}")
+        raise HTTPException(
             status_code=500,
-            content={
-                "status": "error",
-                "message": str(e)
-            }
+            detail=str(e)
         )
 
 @app.get("/database_schema/")
 async def get_database_schema():
     """Get the database schema"""
     try:
-        schema = data_analyst.db_conn.get_schema()
+        schema = sql_analysis_system.sql_db.get_schema()
         return JSONResponse({
             "status": "success",
             "schema": schema
         })
     except Exception as e:
-        logger.error(f"Error fetching schema: {str(e)}")
-        return JSONResponse(
+        logger.error(f"Failed to get schema: {str(e)}")
+        raise HTTPException(
             status_code=500,
-            content={
-                "status": "error",
-                "message": str(e)
-            }
+            detail=str(e)
         )
 
 if __name__ == "__main__":

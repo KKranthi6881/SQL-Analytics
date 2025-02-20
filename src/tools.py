@@ -298,4 +298,13 @@ class SearchTools:
             return {
                 "status": "error",
                 "error": str(e)
-            } 
+            }
+
+    def search_docs(self, query: str) -> Dict[str, Any]:
+        """Search documentation"""
+        try:
+            # If you don't have a separate docs collection, use the same as code search
+            return self.search_code(query)
+        except Exception as e:
+            logger.error(f"Doc search failed: {str(e)}")
+            return {"results": []} 

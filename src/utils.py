@@ -9,7 +9,6 @@ from chromadb.config import Settings
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
-from langchain_openai import OpenAIEmbeddings
 from langchain_ollama import OllamaEmbeddings
 from langchain.text_splitter import Language
 import logging
@@ -17,16 +16,34 @@ import yaml
 from dotenv import load_dotenv
 import tempfile
 from src.code_analyzer import CodeAnalyzer
+import getpass
+import os
 
-# Load environment variables
-load_dotenv()
+
+
 
 logger = logging.getLogger(__name__)
 
-class OpenAIEmbeddingFunction:
-    def __init__(self, api_key: str):
-        #self.embeddings = OllamaEmbeddings(model="nomic-embed-text")
-        self.embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+class OllamaEmbeddingFunction:
+    def __init__(self):
+        """Initialize the Ollama embedding function"""
+        try:
+            self.embeddings = OllamaEmbeddings(
+                model="nomic-embed-text"
+            )
+            # Test the connection
+            self._test_connection()
+        except Exception as e:
+            raise ValueError(f"Failed to initialize Ollama embeddings: {str(e)}")
+
+    def _test_connection(self):
+        """Test the embedding connection"""
+        try:
+            test_result = self.embeddings.embed_query("test")
+            if not test_result or len(test_result) == 0:
+                raise ValueError("Empty embedding result")
+        except Exception as e:
+            raise ValueError(f"Embedding test failed: {str(e)}")
 
     def __call__(self, input: List[str]) -> List[List[float]]:
         """ChromaDB compatible embedding function"""
@@ -37,47 +54,28 @@ class OpenAIEmbeddingFunction:
 class ChromaDBManager:
     def __init__(self, persist_directory: str = "./chroma_db"):
         """Initialize ChromaDB with a persistence directory."""
-        # Check for OpenAI API key
-        self.api_key = "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"
-        if not self.api_key:
-            raise ValueError(
-                "OpenAI API key not found. Please set OPENAI_API_KEY environment variable."
-            )
-        
-        # Validate API key format
-        if not self.api_key.startswith("sk-"):
-            raise ValueError(
-                "Invalid OpenAI API key format. The key should start with 'sk-'. "
-                "Please check your API key at https://platform.openai.com/api-keys"
-            ) 
-            
         try:
+            # Initialize the Ollama embedding function
+            self.embedding_function = OllamaEmbeddingFunction()
+            
+            # Initialize ChromaDB client
             self.client = chromadb.PersistentClient(
                 path=persist_directory
             )
             self.collections = {}
             
-            # Specialized text splitters
+            # Initialize text splitters
             self.doc_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=1000,
                 chunk_overlap=200
             )
             
-            # Code-specific splitter with language awareness
             self.code_splitter = RecursiveCharacterTextSplitter.from_language(
-                language=Language.PYTHON,  # Default to Python, can be changed
+                language=Language.PYTHON,
                 chunk_size=500,
                 chunk_overlap=50
             )
             
-            # Initialize embedding function
-            self.embedding_function = OpenAIEmbeddingFunction(self.api_key)
-            
-            # Test the embedding function
-            test_embedding = self.embedding_function(["test"])
-            if not test_embedding or len(test_embedding) == 0:
-                raise ValueError("Failed to generate embeddings with the provided API key")
-                
         except Exception as e:
             logger.error(f"Error initializing ChromaDBManager: {str(e)}")
             raise

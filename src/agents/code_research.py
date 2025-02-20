@@ -29,11 +29,16 @@ class AgentState(TypedDict):
     final_summary: Annotated[str, "User-friendly final summary"]
 
 # Define structured outputs
+class Relationship(BaseModel):
+    source_table: str
+    target_table: str
+    key_fields: List[str]  # Changed to List[str] since it receives a list of keys
+
 class CodeAnalysis(BaseModel):
     tables_and_columns: Dict[str, List[str]] = Field(
         description="Dictionary of table names and their columns"
     )
-    relationships: List[str] = Field(
+    relationships: List[Relationship] = Field(  # Use the Relationship model
         description="List of relationships between tables"
     )
     business_logic: str = Field(
@@ -43,6 +48,28 @@ class CodeAnalysis(BaseModel):
         description="Technical implementation details"
     )
 
+class Requirements(BaseModel):
+    business_columns: List[str] = Field(
+        description="Columns related to business logic"
+    )
+    tables: List[str] = Field(
+        description="Tables described in the documentation"
+    )
+    business_rules: List[str] = Field(
+        description="Business rules and processes identified"
+    )
+
+class AdditionalContext(BaseModel):
+    tables: List[str] = Field(
+        description="Tables involved"
+    )
+    business_columns: List[str] = Field(
+        description="Business-related columns"
+    )
+    business_rules: List[str] = Field(
+        description="Business rules and descriptions"
+    )
+
 class DocAnalysis(BaseModel):
     key_concepts: List[str] = Field(
         description="Key concepts found in documentation"
@@ -50,12 +77,15 @@ class DocAnalysis(BaseModel):
     workflows: List[str] = Field(
         description="Business workflows described"
     )
-    requirements: str = Field(
+    requirements: Requirements = Field(
         description="Business requirements identified"
     )
-    additional_context: str = Field(
+    additional_context: AdditionalContext = Field(  # Changed to AdditionalContext model
         description="Additional contextual information"
     )
+
+    class Config:
+        arbitrary_types_allowed = True
 
 class FinalSummary(BaseModel):
     overview: str = Field(
@@ -104,20 +134,22 @@ def create_simple_agent(tools: SearchTools):
     Guidelines:
     - Focus on SQL and Python code structure
     - Identify tables, columns and their relationships related to the user question only.
+    - For relationships, provide them as dictionaries with source_table, target_table, and key fields
     - Explain technical implementation details related to the user question only.
     - Describe the business logic 
-    - Provide the Column level lineage which is relavent to related to the user question only and code.
-    - Don't provide a generalized answers or tables info
+    - Provide the Column level lineage which is relevant to the user question only and code.
+    - Don't provide generalized answers or tables info
     - You must rethink and provide related to the user question.
     
     Your response MUST be in the following JSON format:
     {format_instructions}
     
     Make sure to include the below content must be related to the user question only.:
-    1. All tables and their columns in the tables_and_columns field
-    2. All relationships between tables in the relationships field
-    3. Clear business logic description in the business_logic field
-    4. Implementation details in the technical_details field
+    1.Focus on User question and provide clear and relavant info. Don't generalize the results wiith other tables.
+    2. All tables and their columns in the tables_and_columns field
+    3. All relationships between tables in the relationships field
+    4. Clear business logic description in the business_logic field
+    5. Implementation details in the technical_details field
     
     Response:
     """
@@ -129,7 +161,7 @@ def create_simple_agent(tools: SearchTools):
     {doc_context}
     
     Guidelines:
-    - Focus on business requirements and workflows
+    - Focus on business requirements and workflows which is relavant to user ask. Don't generalize it.
     - Identify key concepts and terminology
     - Extract business rules and processes
     - Note any important considerations
@@ -192,6 +224,7 @@ def create_simple_agent(tools: SearchTools):
     3. Business Processes
        - Key processes identified
        - Metrics and calculations
+       
     
     4. Technical Implementation
        - Implementation approach
@@ -199,12 +232,7 @@ def create_simple_agent(tools: SearchTools):
 
     
     Make your analysis clear and actionable. After your analysis 
-    
-    1. provide suitable sql script based on user question only.
-    2. Don't genreate random sql queries
-    3. Before you finalize it make sure you analyze the list of tables and columns should cover for the question related task.
-    4. Parse the query without any syntax error and provide the final sql query output.
-    4. If you do not find the related tables or columns respecitve to the questions Please say I do not have enough info available.
+
     Response:
     """
 
@@ -372,7 +400,7 @@ def create_simple_agent(tools: SearchTools):
                                   {response_text}
                 ===================================================
 
-                Code Context Details
+                Vector Search Details
                 ------------------
                 The analysis is based on the following code structure:
                 
